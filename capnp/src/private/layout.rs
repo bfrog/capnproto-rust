@@ -29,6 +29,7 @@ use crate::private::capability::{ClientHook};
 use crate::private::arena::{BuilderArena, ReaderArena, NullArena, SegmentId};
 use crate::private::endian::{WireValue, Endian};
 use crate::private::mask::Mask;
+use crate::private::primitive::Primitive;
 use crate::private::units::*;
 use crate::private::zero;
 use crate::{MessageSize, Result, Word};
@@ -2840,14 +2841,14 @@ impl <'a> StructReader<'a> {
     }
 
     #[inline]
-    pub fn get_data_field<T: Endian + zero::Zero>(&self, offset: ElementCount) -> T {
+    pub fn get_data_field<T: Primitive + zero::Zero>(&self, offset: ElementCount) -> T {
         // We need to check the offset because the struct may have
         // been created with an old version of the protocol that did
         // not contain the field.
         if (offset + 1) * bits_per_element::<T>() <= self.data_size as usize {
+            let dwv: *const <T as Primitive>::Raw = self.data as *const _;
             unsafe {
-                let dwv: *const WireValue<T> = self.data as *const _;
-                (*dwv.offset(offset as isize)).get()
+                <T as Primitive>::get(&*dwv.offset(offset as isize))
             }
         } else {
             T::zero()
@@ -2868,7 +2869,7 @@ impl <'a> StructReader<'a> {
     }
 
     #[inline]
-    pub fn get_data_field_mask<T:Endian + zero::Zero + Mask>(&self,
+    pub fn get_data_field_mask<T:Primitive + zero::Zero + Mask>(&self,
                                                              offset: ElementCount,
                                                              mask: <T as Mask>::T) -> T {
         Mask::mask(self.get_data_field(offset), mask)
@@ -2995,15 +2996,15 @@ impl <'a> StructBuilder<'a> {
     }
 
     #[inline]
-    pub fn set_data_field<T:Endian>(&self, offset: ElementCount, value: T) {
+    pub fn set_data_field<T:Primitive>(&self, offset: ElementCount, value: T) {
+        let ptr: *mut <T as Primitive>::Raw = self.data as *mut _;
         unsafe {
-            let ptr: *mut WireValue<T> = self.data as *mut _;
-            (*ptr.offset(offset as isize)).set(value)
+            <T as Primitive>::set(&mut*ptr.offset(offset as isize), value)
         }
     }
 
     #[inline]
-    pub fn set_data_field_mask<T:Endian + Mask>(&self,
+    pub fn set_data_field_mask<T:Primitive + Mask>(&self,
                                                 offset: ElementCount,
                                                 value: T,
                                                 mask: <T as Mask>::T) {
@@ -3011,17 +3012,17 @@ impl <'a> StructBuilder<'a> {
     }
 
     #[inline]
-    pub fn get_data_field<T: Endian>(&self, offset: ElementCount) -> T {
+    pub fn get_data_field<T: Primitive>(&self, offset: ElementCount) -> T {
+        let ptr: *const <T as Primitive>::Raw = self.data as *const _;
         unsafe {
-            let ptr: *mut WireValue<T> = self.data as *mut _;
-            (*ptr.offset(offset as isize)).get()
+            <T as Primitive>::get(&*ptr.offset(offset as isize))
         }
     }
 
     #[inline]
-    pub fn get_data_field_mask<T:Endian + Mask>(&self,
-                                                offset: ElementCount,
-                                                mask: <T as Mask>::T) -> T {
+    pub fn get_data_field_mask<T:Primitive + Mask>(&self,
+                                                   offset: ElementCount,
+                                                   mask: <T as Mask>::T) -> T {
         Mask::mask(self.get_data_field(offset), mask)
     }
 

@@ -28,6 +28,7 @@ use crate::Word;
 pub mod arena;
 pub mod capability;
 pub mod endian;
+pub mod primitive;
 pub mod layout;
 mod mask;
 pub mod units;
