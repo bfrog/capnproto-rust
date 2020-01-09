@@ -27,7 +27,7 @@ use crate::data;
 use crate::text;
 use crate::private::capability::{ClientHook};
 use crate::private::arena::{BuilderArena, ReaderArena, NullArena, SegmentId};
-use crate::private::endian::{WireValue, Endian};
+use crate::private::endian::{WireValue};
 use crate::private::mask::Mask;
 use crate::private::primitive::Primitive;
 use crate::private::units::*;
@@ -3411,13 +3411,20 @@ impl <'a> ListBuilder<'a> {
 }
 
 
-pub trait PrimitiveElement: Endian {
+pub trait PrimitiveElement {
+    fn get(list_reader: &ListReader, index: ElementCount32) -> Self;
+    fn get_from_builder(list_builder: &ListBuilder, index: ElementCount32) -> Self;
+    fn set(list_builder: &ListBuilder, index: ElementCount32, value: Self);
+    fn element_size() -> ElementSize;
+}
+
+impl <T : Primitive> PrimitiveElement for T {
     #[inline]
     fn get(list_reader: &ListReader, index: ElementCount32) -> Self {
         let offset = (index as u64 * list_reader.step as u64 / BITS_PER_BYTE as u64) as u32;
         unsafe {
             let ptr: *const u8 = list_reader.ptr.offset(offset as isize);
-            (*(ptr as *const WireValue<Self>)).get()
+            <Self as Primitive>::get(&*(ptr as *const <Self as Primitive>::Raw))
         }
     }
 
@@ -3425,8 +3432,8 @@ pub trait PrimitiveElement: Endian {
     fn get_from_builder(list_builder: &ListBuilder, index: ElementCount32) -> Self {
         let offset = (index as u64 * list_builder.step as u64 / BITS_PER_BYTE as u64) as u32;
         unsafe {
-            let ptr: *mut WireValue<Self> = list_builder.ptr.offset(offset as isize) as *mut _;
-            (*ptr).get()
+            let ptr: *mut <Self as Primitive>::Raw = list_builder.ptr.offset(offset as isize) as *mut _;
+            <Self as Primitive>::get(&*ptr)
         }
     }
 
@@ -3434,8 +3441,8 @@ pub trait PrimitiveElement: Endian {
     fn set(list_builder: &ListBuilder, index: ElementCount32, value: Self) {
         let offset = (index as u64 * list_builder.step as u64 / BITS_PER_BYTE as u64) as u32;
         unsafe {
-            let ptr: *mut WireValue<Self> = list_builder.ptr.offset(offset as isize) as *mut _;
-            (*ptr).set(value);
+            let ptr: *mut <Self as Primitive>::Raw = list_builder.ptr.offset(offset as isize) as *mut _;
+            <Self as Primitive>::set(&mut *ptr, value);
         }
     }
 
@@ -3450,17 +3457,6 @@ pub trait PrimitiveElement: Endian {
         }
     }
 }
-
-impl PrimitiveElement for u8 { }
-impl PrimitiveElement for u16 { }
-impl PrimitiveElement for u32 { }
-impl PrimitiveElement for u64 { }
-impl PrimitiveElement for i8 { }
-impl PrimitiveElement for i16 { }
-impl PrimitiveElement for i32 { }
-impl PrimitiveElement for i64 { }
-impl PrimitiveElement for f32 { }
-impl PrimitiveElement for f64 { }
 
 impl PrimitiveElement for bool {
     #[inline]
@@ -3497,4 +3493,6 @@ impl PrimitiveElement for () {
 
     #[inline]
     fn set(_list: &ListBuilder, _index: ElementCount32, _value: ()) { }
+
+    fn element_size() -> ElementSize { Void }
 }
