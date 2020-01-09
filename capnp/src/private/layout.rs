@@ -27,7 +27,6 @@ use crate::data;
 use crate::text;
 use crate::private::capability::{ClientHook};
 use crate::private::arena::{BuilderArena, ReaderArena, NullArena, SegmentId};
-use crate::private::endian::{WireValue};
 use crate::private::mask::Mask;
 use crate::private::primitive::Primitive;
 use crate::private::units::*;
@@ -129,58 +128,77 @@ impl WirePointerKind {
 
 #[repr(C)]
 pub struct WirePointer {
-    offset_and_kind: WireValue<u32>,
-    upper32bits: WireValue<u32>,
+    offset_and_kind: [u8; 4],
+    upper32bits: [u8; 4],
 }
 
 impl WirePointer {
+    #[inline]
+    pub fn get_offset_and_kind(&self) -> u32 {
+        <u32 as Primitive>::get(&self.offset_and_kind)
+    }
+
+    #[inline]
+    pub fn set_offset_and_kind(&mut self, value: u32) {
+        <u32 as Primitive>::set(&mut self.offset_and_kind, value)
+    }
+
+    #[inline]
+    pub fn get_upper32bits(&self) -> u32 {
+        <u32 as Primitive>::get(&self.upper32bits)
+    }
+
+    #[inline]
+    pub fn set_upper32bits(&mut self, value: u32) {
+        <u32 as Primitive>::set(&mut self.upper32bits, value)
+    }
 
     #[inline]
     pub fn kind(&self) -> WirePointerKind {
-        WirePointerKind::from(self.offset_and_kind.get() as u8 & 3)
+        WirePointerKind::from(<u32 as Primitive>::get(&self.offset_and_kind) as u8 & 3)
     }
 
     #[inline]
     pub fn is_positional(&self) -> bool {
-        (self.offset_and_kind.get() & 2) == 0 // match Struct and List but not Far and Other.
+        (<u32 as Primitive>::get(&self.offset_and_kind) & 2) == 0 // match Struct and List but not Far and Other.
     }
 
     #[inline]
     pub fn is_capability(&self) -> bool {
-        self.offset_and_kind.get() == WirePointerKind::Other as u32
+        <u32 as Primitive>::get(&self.offset_and_kind) == WirePointerKind::Other as u32
     }
 
     #[inline]
     pub fn target(&self) -> *const Word {
         let this_addr: *const Word = self as *const _ as *const _;
-        unsafe { this_addr.offset((1 + ((self.offset_and_kind.get() as i32) >> 2)) as isize) }
+        unsafe { this_addr.offset((1 + ((<u32 as Primitive>::get(&self.offset_and_kind) as i32) >> 2)) as isize) }
     }
 
     #[inline]
     pub fn target_from_segment(&self, arena: &dyn ReaderArena, segment_id: u32) -> Result<*const Word> {
         let this_addr: *const Word = self as *const _ as *const _;
-        let offset = 1 + ((self.offset_and_kind.get() as i32) >> 2);
+        let offset = 1 + ((<u32 as Primitive>::get(&self.offset_and_kind) as i32) >> 2);
         arena.check_offset(segment_id, this_addr as *const _, offset).map(|x| x as *const Word)
     }
 
     #[inline]
     pub fn mut_target(&mut self) -> *mut Word {
         let this_addr: *mut Word = self as *mut _ as *mut _;
-        unsafe { this_addr.offset((1 + ((self.offset_and_kind.get() as i32) >> 2)) as isize) }
+        unsafe { this_addr.offset((1 + ((<u32 as Primitive>::get(&self.offset_and_kind) as i32) >> 2)) as isize) }
     }
 
     #[inline]
     pub fn set_kind_and_target(&mut self, kind: WirePointerKind, target: *mut Word) {
         let this_addr: isize = self as *const _ as isize;
         let target_addr: isize = target as *const _ as isize;
-        self.offset_and_kind.set(
-            ((((target_addr - this_addr) / BYTES_PER_WORD as isize) as i32 - 1) << 2) as u32
-                | (kind as u32))
+        <u32 as Primitive>::set(&mut self.offset_and_kind,
+                                ((((target_addr - this_addr) / BYTES_PER_WORD as isize) as i32 - 1) << 2) as u32
+                                | (kind as u32))
     }
 
     #[inline]
     pub fn set_kind_with_zero_offset(&mut self, kind: WirePointerKind) {
-        self.offset_and_kind.set(kind as u32)
+        <u32 as Primitive>::set(&mut self.offset_and_kind, kind as u32)
     }
 
     #[inline]
@@ -194,51 +212,50 @@ impl WirePointer {
         //# allocated immediately before this pointer, to distinguish
         //# it from null.
 
-        self.offset_and_kind.set(0xfffffffc);
+        <u32 as Primitive>::set(&mut self.offset_and_kind, 0xfffffffc)
     }
 
     #[inline]
     pub fn inline_composite_list_element_count(&self) -> ElementCount32 {
-        self.offset_and_kind.get() >> 2
+        <u32 as Primitive>::get(&self.offset_and_kind) >> 2
     }
 
     #[inline]
     pub fn set_kind_and_inline_composite_list_element_count(&mut self,
                                                             kind: WirePointerKind,
                                                             element_count: ElementCount32) {
-        self.offset_and_kind.set(( element_count << 2) | (kind as u32))
+        self.set_offset_and_kind(( element_count << 2) | (kind as u32))
     }
 
     #[inline]
     pub fn far_position_in_segment(&self) -> WordCount32 {
-        self.offset_and_kind.get() >> 3
+        self.get_offset_and_kind() >> 3
     }
 
     #[inline]
     pub fn is_double_far(&self) -> bool {
-        ((self.offset_and_kind.get() >> 2) & 1) != 0
+        ((self.get_offset_and_kind() >> 2) & 1) != 0
     }
 
     #[inline]
     pub fn set_far(&mut self, is_double_far: bool, pos: WordCount32) {
-        self.offset_and_kind
-            .set(( pos << 3) | ((is_double_far as u32) << 2) | WirePointerKind::Far as u32);
+        self.set_offset_and_kind(( pos << 3) | ((is_double_far as u32) << 2) | WirePointerKind::Far as u32);
     }
 
     #[inline]
     pub fn set_cap(&mut self, index: u32) {
-        self.offset_and_kind.set(WirePointerKind::Other as u32);
-        self.upper32bits.set(index);
+        self.set_offset_and_kind(WirePointerKind::Other as u32);
+        self.set_upper32bits(index);
     }
 
     #[inline]
     pub fn struct_data_size(&self) -> WordCount16 {
-        (self.upper32bits.get() & 0xffffffff) as WordCount16
+        (self.get_upper32bits() & 0xffffffff) as WordCount16
     }
 
     #[inline]
     pub fn struct_ptr_count(&self) -> WordCount16 {
-        (self.upper32bits.get() >> 16) as WordCount16
+        (self.get_upper32bits() >> 16) as WordCount16
     }
 
     #[inline]
@@ -249,7 +266,7 @@ impl WirePointer {
 
     #[inline]
     pub fn set_struct_size(&mut self, size: StructSize) {
-        self.upper32bits.set(size.data as u32 | ((size.pointers as u32) << 16))
+        self.set_upper32bits(size.data as u32 | ((size.pointers as u32) << 16))
     }
 
     #[inline]
@@ -259,12 +276,12 @@ impl WirePointer {
 
     #[inline]
     pub fn list_element_size(&self) -> ElementSize {
-        ElementSize::from(self.upper32bits.get() as u8 & 7)
+        ElementSize::from(self.get_upper32bits() as u8 & 7)
     }
 
     #[inline]
     pub fn list_element_count(&self) -> ElementCount32 {
-        self.upper32bits.get() >> 3
+        self.get_upper32bits() >> 3
     }
 
     #[inline]
@@ -275,38 +292,38 @@ impl WirePointer {
     #[inline]
     pub fn set_list_size_and_count(&mut self, es: ElementSize, ec: ElementCount32) {
         assert!(ec < (1 << 29), "Lists are limited to 2**29 elements");
-        self.upper32bits.set((ec << 3 ) | (es as u32));
+        self.set_upper32bits((ec << 3 ) | (es as u32));
     }
 
     #[inline]
     pub fn set_list_inline_composite(&mut self, wc: WordCount32) {
         assert!(wc < (1 << 29), "Inline composite lists are limited to 2**29 words");
-        self.upper32bits.set((wc << 3) | (InlineComposite as u32));
+        self.set_upper32bits((wc << 3) | (InlineComposite as u32));
     }
 
     #[inline]
     pub fn far_segment_id(&self) -> SegmentId {
-        self.upper32bits.get() as SegmentId
+        self.get_upper32bits() as SegmentId
     }
 
     #[inline]
     pub fn set_far_segment_id(&mut self, si: SegmentId) {
-        self.upper32bits.set(si)
+        self.set_upper32bits(si)
     }
 
     #[inline]
     pub fn cap_index(&self) -> u32 {
-        self.upper32bits.get()
+        self.get_upper32bits()
     }
 
     #[inline]
     pub fn set_cap_index(&mut self, index: u32) {
-        self.upper32bits.set(index)
+        self.set_upper32bits(index)
     }
 
     #[inline]
     pub fn is_null(&self) -> bool {
-        self.offset_and_kind.get() == 0 && self.upper32bits.get() == 0
+        self.get_offset_and_kind() == 0 && self.get_upper32bits() == 0
     }
 }
 
