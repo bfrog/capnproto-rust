@@ -202,7 +202,7 @@ impl <A> ReaderArena for BuilderArenaImpl<A> where A: Allocator {
     }
 
     fn check_offset(&self, _segment_id: u32, start: *const u8, offset_in_words: i32) -> Result<*const u8> {
-        unsafe { Ok(start.offset((offset_in_words as usize * BYTES_PER_WORD) as isize)) }
+        unsafe { Ok(start.offset((offset_in_words as i64 * BYTES_PER_WORD as i64) as isize)) }
     }
 
     fn contains_interval(&self, _id: u32, _start: *const u8, _size: usize) -> Result<()> {
