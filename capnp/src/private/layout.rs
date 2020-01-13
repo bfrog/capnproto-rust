@@ -28,7 +28,7 @@ use crate::text;
 use crate::private::capability::{ClientHook};
 use crate::private::arena::{BuilderArena, ReaderArena, NullArena, SegmentId};
 use crate::private::mask::Mask;
-use crate::private::primitive::Primitive;
+use crate::private::primitive::{Primitive, WireValue};
 use crate::private::units::*;
 use crate::private::zero;
 use crate::{MessageSize, Result, Word};
