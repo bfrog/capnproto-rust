@@ -23,23 +23,29 @@
 
 use std::convert::TryInto;
 
-use capnp::{message, Error, Result, Word, OutputSegments};
+use capnp::{message, Error, Result, OutputSegments};
 
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub struct OwnedSegments {
+    // Each pair represents a segment inside of `owned_space`.
+    // (starting index (in words), length in words)
     segment_slices: Vec<(usize, usize)>,
-    owned_space: Vec<Word>,
+    owned_space: Vec<u8>,
 }
 
 impl message::ReaderSegments for OwnedSegments {
-    fn get_segment<'a>(&'a self, id: u32) -> Option<&'a [Word]> {
+    fn get_segment<'a>(&'a self, id: u32) -> Option<&'a [u8]> {
         if id < self.segment_slices.len() as u32 {
             let (a, b) = self.segment_slices[id as usize];
-            Some(&self.owned_space[a..b])
+            Some(&self.owned_space[(a * 8)..(b * 8)])
         } else {
             None
         }
+    }
+
+    fn len(&self) -> usize {
+        self.segment_slices.len()
     }
 }
 
@@ -119,8 +125,8 @@ async fn read_segments<R>(mut read: R,
                     -> Result<message::Reader<OwnedSegments>>
     where R: AsyncRead + Unpin
 {
-    let mut owned_space: Vec<Word> = Word::allocate_zeroed_vec(total_words);
-    read.read_exact(Word::words_to_bytes_mut(&mut owned_space[..])).await?;
+    let mut owned_space: Vec<u8> = vec![0;total_words * 8];
+    read.read_exact(&mut owned_space[..]).await?;
     let segments = OwnedSegments {segment_slices: segment_slices, owned_space: owned_space};
     Ok(message::Reader::new(segments, options))
 }
@@ -185,7 +191,7 @@ pub async fn write_message<W,M>(mut writer: W, message: M) -> Result<()>
     Ok(())
 }
 
-async fn write_segment_table<W>(mut write: W, segments: &[&[Word]]) -> ::std::io::Result<()>
+async fn write_segment_table<W>(mut write: W, segments: &[&[u8]]) -> ::std::io::Result<()>
     where W: AsyncWrite + Unpin
 {
     let mut buf: [u8; 8] = [0; 8];
@@ -193,14 +199,14 @@ async fn write_segment_table<W>(mut write: W, segments: &[&[Word]]) -> ::std::io
 
     // write the first Word, which contains segment_count and the 1st segment length
     buf[0..4].copy_from_slice(&(segment_count as u32 - 1).to_le_bytes());
-    buf[4..8].copy_from_slice(&(segments[0].len() as u32).to_le_bytes());
+    buf[4..8].copy_from_slice(&((segments[0].len() / 8) as u32).to_le_bytes());
     write.write_all(&buf).await?;
 
     if segment_count > 1 {
         if segment_count < 4 {
             for idx in 1..segment_count {
                 buf[(idx - 1) * 4..idx * 4].copy_from_slice(
-                    &(segments[idx].len() as u32).to_le_bytes());
+                    &((segments[idx].len() / 8) as u32).to_le_bytes());
             }
             if segment_count == 2 {
                 for idx in 4..8 { buf[idx] = 0 }
@@ -210,7 +216,7 @@ async fn write_segment_table<W>(mut write: W, segments: &[&[Word]]) -> ::std::io
             let mut buf = vec![0; (segment_count & !1) * 4];
             for idx in 1..segment_count {
                 buf[(idx - 1) * 4..idx * 4].copy_from_slice(
-                    &(segments[idx].len() as u32).to_le_bytes());
+                    &((segments[idx].len() / 8) as u32).to_le_bytes());
             }
             if segment_count % 2 == 0 {
                 for idx in (buf.len() - 4)..(buf.len()) { buf[idx] = 0 }
@@ -222,11 +228,11 @@ async fn write_segment_table<W>(mut write: W, segments: &[&[Word]]) -> ::std::io
 }
 
 /// Writes segments to `write`.
-async fn write_segments<W>(mut write: W, segments: &[&[Word]]) -> Result<()>
+async fn write_segments<W>(mut write: W, segments: &[&[u8]]) -> Result<()>
     where W: AsyncWrite + Unpin
 {
     for i in 0..segments.len() {
-        write.write_all(Word::words_to_bytes(segments[i])).await?;
+        write.write_all(segments[i]).await?;
     }
     Ok(())
 }
@@ -245,7 +251,7 @@ pub mod test {
 
     use quickcheck::{quickcheck, TestResult};
 
-    use capnp::{Word, message, OutputSegments};
+    use capnp::{message, OutputSegments};
     use capnp::message::ReaderSegments;
 
     use super::{
@@ -344,7 +350,7 @@ pub mod test {
         buf.clear();
     }
 
-    fn construct_segment_table(segments: &[&[Word]]) -> Vec<u8> {
+    fn construct_segment_table(segments: &[&[u8]]) -> Vec<u8> {
         let mut exec = futures::executor::LocalPool::new();
         let mut buf = vec![];
         exec.run_until(super::write_segment_table(&mut buf, segments)).unwrap();
@@ -354,9 +360,9 @@ pub mod test {
     #[test]
     fn test_construct_segment_table() {
 
-        let segment_0: [Word; 0] = [];
-        let segment_1 = [capnp::word(1,0,0,0,0,0,0,0); 1];
-        let segment_199 = [capnp::word(199,0,0,0,0,0,0,0); 199];
+        let segment_0: [u8; 0] = [];
+        let segment_1 = [1,0,0,0,0,0,0,0];
+        let segment_199 = [197; 199 * 8];
 
         let buf = construct_segment_table(&[&segment_0]);
         assert_eq!(&[0,0,0,0,  // 1 segments
@@ -400,7 +406,7 @@ pub mod test {
                    &buf[..]);
     }
 
-    impl AsOutputSegments for Vec<Vec<Word>> {
+    impl AsOutputSegments for Vec<Vec<u8>> {
         fn as_output_segments<'a>(&'a self) -> OutputSegments<'a> {
             if self.len() == 0 {
                 OutputSegments::SingleSegment([&[]])
@@ -496,16 +502,30 @@ pub mod test {
         }
     }
 
+    fn word_segments_to_byte_segments(word_segments: Vec<Vec<u64>>) -> Vec<Vec<u8>> {
+        let mut result = Vec::new();
+        for s in word_segments {
+            let mut byte_seg = Vec::new();
+            for w in s {
+                for b in &w.to_le_bytes() {
+                    byte_seg.push(*b)
+                }
+            }
+            result.push(byte_seg);
+        }
+        result
+    }
+
     #[test]
     fn check_round_trip_async() {
         fn round_trip(read_block_frequency: usize,
                       write_block_frequency: usize,
-                      segments: Vec<Vec<Word>>) -> TestResult
+                      word_segments: Vec<Vec<u64>>) -> TestResult
         {
-            if segments.len() == 0 || read_block_frequency == 0 || write_block_frequency == 0 {
+            if word_segments.len() == 0 || read_block_frequency == 0 || write_block_frequency == 0 {
                 return TestResult::discard();
             }
-
+            let segments = word_segments_to_byte_segments(word_segments);
             let (mut read, segments) = {
                 let cursor = std::io::Cursor::new(Vec::new());
                 let mut writer = BlockingWrite::new(cursor, write_block_frequency);
@@ -525,7 +545,7 @@ pub mod test {
             }))
         }
 
-        quickcheck(round_trip as fn(usize, usize, Vec<Vec<Word>>) -> TestResult);
+        quickcheck(round_trip as fn(usize, usize, Vec<Vec<u64>>) -> TestResult);
     }
 }
 
