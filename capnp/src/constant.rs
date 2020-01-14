@@ -28,7 +28,7 @@ use std::marker::PhantomData;
 use crate::any_pointer;
 use crate::private::layout::PointerReader;
 use crate::traits::Owned;
-use crate::{Result, Word};
+use crate::{Result};
 
 #[derive(Copy, Clone)]
 #[repr(C, align(8))]
@@ -43,6 +43,6 @@ pub struct Reader<T> {
 impl <T> Reader<T> where T: for<'a> Owned<'a> {
     /// Retrieve the value.
     pub fn get(&self) -> Result<<T as Owned<'static>>::Reader> {
-        any_pointer::Reader::new(PointerReader::get_root_unchecked(self.words.as_ptr() as *const Word)).get_as()
+        any_pointer::Reader::new(PointerReader::get_root_unchecked(self.words.as_ptr())).get_as()
     }
 }
