@@ -23,8 +23,6 @@
 //!
 //! We still need to make this module visible so that generated code can use it.
 
-use crate::Word;
-
 pub mod arena;
 pub mod capability;
 mod primitive;
@@ -36,9 +34,6 @@ mod zero;
 #[cfg(test)]
 mod layout_test;
 
-pub struct RawSchema<'a> {
-    pub blob: &'a [Word],
-}
 
 
 
