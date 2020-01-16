@@ -132,6 +132,12 @@ pub struct WirePointer {
     upper32bits: WireValue<u32>,
 }
 
+#[test]
+fn wire_pointer_align() {
+    // We cast *u8 to *WirePointer, so we need to make sure it's alignment allows that.
+    assert_eq!(std::mem::align_of::<WirePointer>(), 1);
+}
+
 impl WirePointer {
 
     #[inline]
@@ -310,7 +316,7 @@ impl WirePointer {
 }
 
 mod wire_helpers {
-    use std::{mem, ptr, slice};
+    use std::{ptr, slice};
 
     use crate::private::capability::ClientHook;
     use crate::private::arena::*;
@@ -999,7 +1005,7 @@ mod wire_helpers {
                     return Ok(init_struct_pointer(arena, reff, segment_id, cap_table, size)),
                 Some(d) => {
                     let (new_ref_target, new_reff, new_segment_id) =
-                        copy_message(arena, segment_id, cap_table, reff, mem::transmute(d.as_ptr()));
+                        copy_message(arena, segment_id, cap_table, reff, d.as_ptr() as *const WirePointer);
                     reff = new_reff;
                     segment_id = new_segment_id;
                     ref_target = new_ref_target;
