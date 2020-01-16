@@ -50,64 +50,6 @@ pub mod text;
 pub mod text_list;
 pub mod traits;
 
-/// Eight bytes of memory with opaque interior.
-///
-/// This type is used to ensure that the data of a message is properly aligned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(C, align(8))]
-pub struct Word {
-    raw_content: [u8; 8],
-}
-
-///
-/// Constructs a word with the given bytes.
-///
-pub const fn word(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8, b6: u8, b7: u8) -> Word {
-    Word { raw_content: [b0,b1,b2,b3,b4,b5,b6,b7] }
-}
-
-impl Word {
-    /// Does this, but faster:
-    /// `::std::iter::repeat(Word(0)).take(length).collect()`
-    pub fn allocate_zeroed_vec(length: usize) -> Vec<Word> {
-        let mut result : Vec<Word> = Vec::with_capacity(length);
-        unsafe {
-            result.set_len(length);
-            let p : *mut u8 = result.as_mut_ptr() as *mut u8;
-            ::std::ptr::write_bytes(p, 0u8, length * ::std::mem::size_of::<Word>());
-        }
-        result
-    }
-
-    /// Converts a byte slice into a `Word` slice. Unsafe due to possible alignment issues.
-    /// Only call this if you know that either
-    ///    1. `bytes.to_ptr()` falls on an eight-byte boundary, or
-    ///    2. your processor is okay with unaligned reads.
-    pub unsafe fn bytes_to_words<'a>(bytes: &'a [u8]) -> &'a [Word] {
-        ::std::slice::from_raw_parts(bytes.as_ptr() as *const Word, bytes.len() / 8)
-    }
-
-    /// Converts a mutable byte slice into a mutable `Word` slice. Unsafe due to possible
-    /// alignment issues. Only call this if you know that either
-    ///    1. `bytes.to_ptr()` falls on an eight-byte boundary, or
-    ///    2. your processor is okay with unaligned reads and writes
-    pub unsafe fn bytes_to_words_mut<'a>(bytes: &'a mut [u8]) -> &'a mut [Word] {
-        ::std::slice::from_raw_parts_mut(bytes.as_ptr() as *mut Word, bytes.len() / 8)
-    }
-
-    pub fn words_to_bytes<'a>(words: &'a [Word]) -> &'a [u8] {
-        unsafe {
-            ::std::slice::from_raw_parts(words.as_ptr() as *const u8, words.len() * 8)
-        }
-    }
-
-    pub fn words_to_bytes_mut<'a>(words: &'a mut [Word]) -> &'a mut [u8] {
-        unsafe {
-            ::std::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, words.len() * 8)
-        }
-    }
-}
-
 /// Size of a message. Every generated struct has a method `.total_size()` that returns this.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MessageSize {
