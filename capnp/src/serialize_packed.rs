@@ -222,8 +222,6 @@ struct PackedWrite<W> where W: Write {
 }
 
 impl <W> Write for PackedWrite<W> where W: Write {
-    // This implementation assumes that the data in `in_buf` is actually
-    // eight-byte aligned.
     fn write(&mut self, in_buf: &[u8]) -> io::Result<usize> {
         unsafe {
             let mut buf_idx: usize = 0;
@@ -296,17 +294,16 @@ impl <W> Write for PackedWrite<W> where W: Write {
                     //# consecutive zero words (not including the first
                     //# one).
 
-                    // Here we use our assumption that the input buffer is 8-byte aligned.
-                    let mut in_word : *const u64 = in_ptr as *const u64;
-                    let mut limit : *const u64 = in_end as *const u64;
+                    let mut in_word : *const [u8; 8] = in_ptr as *const [u8; 8];
+                    let mut limit : *const [u8; 8] = in_end as *const [u8; 8];
                     if ptr_sub(limit, in_word) > 255 {
                         limit = in_word.offset(255);
                     }
-                    while in_word < limit && *in_word == 0 {
+                    while in_word < limit && *in_word == [0;8] {
                         in_word = in_word.offset(1);
                     }
 
-                    *buf.get_unchecked_mut(buf_idx) = ptr_sub(in_word, in_ptr as *const u64) as u8;
+                    *buf.get_unchecked_mut(buf_idx) = ptr_sub(in_word, in_ptr as *const [u8; 8]) as u8;
                     buf_idx += 1;
                     in_ptr = in_word as *const u8;
                 } else if tag == 0xff {
